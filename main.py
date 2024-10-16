@@ -47,7 +47,7 @@ class RecommentAlgorithim:
         liked = int(self.redis.hget(interaction_key, "liked") or 0)
 
         # 가중치 설정
-        view_weight = 0.04 # 조회수에 대한 가중치
+        view_weight = 0.004 # 조회수에 대한 가중치
         like_weight = 0.04 # 좋아요 수에 대한 가중치
         liked_weight = 2.0 # 유저의 좋아요 반응 여부에 대한 가중치
         watch_penalty = 1.0 # 유저의 시청 여부에 대한 감점 가중치(-0.5로 적용)
