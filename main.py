@@ -36,44 +36,57 @@ class RecommentAlgorithim:
             # self.redis.hset(video_key, "like_count", -1)
 
     # 추후 구현이 필요한 메소드들
-    def run_algorithm(self, user_id, video_id):
-        video_key = f"video:{video_id}"
-        view_count = int(self.redis.hget(video_key, "view_count") or 0)
-        like_count = int(self.redis.hget(video_key, "like_count") or 0)
-        upload_date = self.redis.hget(video_key, "created_at")
+    def run_algorithm(self, user_id, category_id):
+        # 해당 카테고리의 모든 영상을 가져옴
+        video_keys = self.redis.keys(f"video_{category_id}:*")
 
-        interaction_key = f"interaction:{user_id}:{video_id}"
-        watched = int(self.redis.hget(interaction_key, "watched") or 0)
-        liked = int(self.redis.hget(interaction_key, "liked") or 0)
+        for video_key in video_keys:
+            video_id = video_key.decode().split(":")[1]  # video_id 추출
 
-        # 가중치 설정
-        view_weight = 0.004 # 조회수에 대한 가중치
-        like_weight = 0.04 # 좋아요 수에 대한 가중치
-        liked_weight = 2.0 # 유저의 좋아요 반응 여부에 대한 가중치
-        watch_penalty = 1.0 # 유저의 시청 여부에 대한 감점 가중치(-0.5로 적용)
-        recency_weight = 0.02 # 영상의 최신성에 대한 가중치
+            # 영상 정보 불러오기
+            view_count = int(self.redis.hget(video_key, "view_count") or 0)
+            like_count = int(self.redis.hget(video_key, "like_count") or 0)
+            upload_date = self.redis.hget(video_key, "created_at")
 
-        # 최신성 계산(업로드 날짜와 현재 시간의 차이)
-        now = datetime.now()
-        video_date = datetime.fromisoformat(upload_date.decode())
-        days_diff = (now - video_date).days
+            # 사용자와 영상에 대한 상호작용 정보 불러오기
+            interaction_key = f"interaction:{user_id}:{video_id}"
+            watched = int(self.redis.hget(interaction_key, "watched") or 0)
+            liked = int(self.redis.hget(interaction_key, "liked") or 0)
 
-        # 점수 계산
-        popularity_score = view_count * view_weight + like_count * like_weight # 인기도 점수
-        user_score = (liked_weight if liked else 0) - (watch_penalty if watched else 0) # 시청 여부 및 반응 점수
-        recency_score = max(0, recency_weight * (30 - days_diff))  # 최신성 점수(최근 30일 내 영상일수록 점수가 높음)
-        total_score = popularity_score + user_score + recency_score
+            # 가중치 설정
+            view_weight = 0.004  # 조회수 가중치
+            like_weight = 0.04  # 좋아요 가중치
+            liked_weight = 2.0  # 사용자가 좋아요를 눌렀을 때의 가중치
+            watch_penalty = 1.0  # 사용자가 시청한 경우 감점
+            recency_weight = 0.02  # 최신성 가중치
 
-        return total_score
+            # 최신성 계산
+            now = datetime.now()
+            video_date = datetime.fromisoformat(upload_date.decode())
+            days_diff = (now - video_date).days
+
+            # 점수 계산
+            popularity_score = view_count * view_weight + like_count * like_weight
+            user_score = (liked_weight if liked else 0) - (watch_penalty if watched else 0)
+            recency_score = max(0, recency_weight * (30 - days_diff))  # 최근 30일 내의 영상은 높은 점수
+            total_score = popularity_score + user_score + recency_score
+
+            # 점수를 Redis에 저장
+            score_key = f"scores:{user_id}"
+            self.redis.zadd(score_key, {f"{category_id}:{video_id}": total_score})
+
+        # 마지막 업데이트 시간 갱신
+        self.redis.hset(f"user_meta:{user_id}", "last_updated_at", datetime.now().isoformat())
+
 
     def getRequests(self, queue):
         return True
 
-    def update_scores(self, user_id, video_id):
-        score = self.runAlgorithm(user_id, video_id)
-        score_key = f"scores:{user_id}"
-        self.redis.zadd(score_key, {video_id: score})
-        self.redis.hset(f"user_meta:{user_id}", "last_updated_at", datetime.now().isoformat())
+    # def update_scores(self, user_id, video_id):
+    #     score = self.runAlgorithm(user_id, video_id)
+    #     score_key = f"scores:{user_id}"
+    #     self.redis.zadd(score_key, {video_id: score})
+    #     self.redis.hset(f"user_meta:{user_id}", "last_updated_at", datetime.now().isoformat())
 
     # 계산된 추천 데이터를 받아온다.
     def get_recommendations(self, user_id, count=10):
